@@ -5,15 +5,24 @@ Notion integration for updating weekly menu pages
 import os
 import sys
 import json
+import time
+import logging
 from pathlib import Path
 from datetime import datetime, date
 from typing import Dict, List, Optional
 
 from notion_client import Client
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 
 class NotionMenuUpdater:
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         notion_token = os.getenv('NOTION_TOKEN')
         if not notion_token:
             raise ValueError("NOTION_TOKEN environment variable is required")
@@ -22,6 +31,20 @@ class NotionMenuUpdater:
         self.database_id = os.getenv('NOTION_DATABASE_ID')
         if not self.database_id:
             raise ValueError("NOTION_DATABASE_ID environment variable is required")
+    
+    def _retry_with_backoff(self, func, max_retries=3, base_delay=1):
+        """Execute function with exponential backoff retry"""
+        for attempt in range(max_retries):
+            try:
+                return func()
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    self.logger.error(f"Final attempt failed: {e}")
+                    raise
+                
+                delay = base_delay * (2 ** attempt)
+                self.logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+                time.sleep(delay)
     
     def load_generated_menu(self) -> Dict:
         """Load the generated menu data"""
@@ -33,9 +56,10 @@ class NotionMenuUpdater:
             return json.load(f)
     
     def find_existing_page(self, week_start: str) -> Optional[str]:
-        """Find existing Notion page for the week"""
-        try:
-            response = self.notion.databases.query(
+        """Find existing Notion page for the week with retry logic"""
+        def _query_database():
+            self.logger.info(f"Searching for existing page for week: {week_start}")
+            return self.notion.databases.query(
                 database_id=self.database_id,
                 filter={
                     "property": "Week Start",
@@ -44,28 +68,38 @@ class NotionMenuUpdater:
                     }
                 }
             )
+        
+        try:
+            response = self._retry_with_backoff(_query_database, max_retries=3, base_delay=2)
             
             if response['results']:
-                return response['results'][0]['id']
+                page_id = response['results'][0]['id']
+                self.logger.info(f"Found existing page: {page_id}")
+                return page_id
             return None
             
         except Exception as e:
-            print(f"Error searching for existing page: {e}")
+            self.logger.error(f"Error searching for existing page: {e}")
             return None
     
     def archive_existing_page(self, page_id: str):
-        """Archive existing page by setting archived property to true"""
-        try:
-            self.notion.pages.update(
+        """Archive existing page by setting archived property to true with retry logic"""
+        def _archive_page():
+            self.logger.info(f"Archiving page: {page_id}")
+            return self.notion.pages.update(
                 page_id=page_id,
                 archived=True
             )
-            print(f"Archived existing page: {page_id}")
+        
+        try:
+            self._retry_with_backoff(_archive_page, max_retries=3, base_delay=2)
+            self.logger.info(f"Successfully archived page: {page_id}")
         except Exception as e:
-            print(f"Error archiving page: {e}")
+            self.logger.error(f"Error archiving page {page_id}: {e}")
+            raise
     
     def create_notion_page(self, menu_data: Dict) -> str:
-        """Create new Notion page with weekly menu"""
+        """Create new Notion page with weekly menu with retry logic"""
         week_start = menu_data['week_start']
         menu_content = menu_data['menu_content']
         generated_at = menu_data['generated_at']
@@ -212,17 +246,24 @@ class NotionMenuUpdater:
                 }
             })
         
-        try:
-            response = self.notion.pages.create(
+        def _create_page():
+            self.logger.info(f"Creating Notion page for week: {week_start}")
+            return self.notion.pages.create(
                 parent={"database_id": self.database_id},
                 properties=properties,
                 children=children
             )
-            
-            return response['id']
+        
+        try:
+            response = self._retry_with_backoff(_create_page, max_retries=3, base_delay=2)
+            page_id = response['id']
+            self.logger.info(f"Successfully created Notion page: {page_id}")
+            return page_id
             
         except Exception as e:
-            print(f"Error creating Notion page: {e}")
+            self.logger.error(f"Error creating Notion page: {e}")
+            self.logger.error(f"Database ID: {self.database_id}")
+            self.logger.error(f"Week start: {week_start}")
             raise
     
     def update_menu(self):
@@ -234,14 +275,14 @@ class NotionMenuUpdater:
         existing_page_id = self.find_existing_page(week_start)
         
         if existing_page_id:
-            print(f"Found existing page for week {week_start}, archiving...")
+            self.logger.info(f"Found existing page for week {week_start}, archiving...")
             self.archive_existing_page(existing_page_id)
         
         # Create new page
-        print("Creating new Notion page...")
+        self.logger.info("Creating new Notion page...")
         new_page_id = self.create_notion_page(menu_data)
         
-        print(f"Successfully created Notion page: {new_page_id}")
+        self.logger.info(f"Successfully created Notion page: {new_page_id}")
         return new_page_id
 
 
@@ -253,7 +294,7 @@ def main():
         print(f"Menu successfully updated in Notion: {page_id}")
         
     except Exception as e:
-        print(f"Error updating Notion: {e}")
+        logging.error(f"Error updating Notion: {e}")
         sys.exit(1)
 
 

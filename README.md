@@ -14,34 +14,106 @@ GitHub Actions（cron） → Python → OpenAI API → Notion DB
 
 ## 🚀 セットアップ
 
-### 1. 必要な環境変数
+### 1. 必要な環境変数の取得と設定
 
-GitHub リポジトリの Secrets に以下を設定してください：
+#### OpenAI API キーの取得
+
+1. [OpenAI Platform](https://platform.openai.com/) にアクセス
+2. アカウントにログインまたは新規作成
+3. 右上のアカウントメニュー → "View API keys" をクリック
+4. "Create new secret key" をクリックしてAPIキーを生成
+5. キーをコピーして安全な場所に保存（一度しか表示されません）
+
+#### Notion インテグレーションの設定
+
+1. [Notion Developers](https://www.notion.so/my-integrations) にアクセス
+2. "New integration" をクリック
+3. インテグレーション名を入力（例：「Weekly Menu Planner」）
+4. ワークスペースを選択して "Submit" をクリック
+5. **Internal Integration Token** をコピーして保存
+6. 献立用データベースを作成後、そのページで：
+   - 右上の "Share" をクリック
+   - 作成したインテグレーションを招待
+   - "Invite" をクリック
+
+#### GitHub パーソナルアクセストークンの作成
+
+1. GitHub にログイン後、右上のプロフィール → "Settings"
+2. 左メニューの "Developer settings" → "Personal access tokens" → "Tokens (classic)"
+3. "Generate new token" → "Generate new token (classic)" をクリック
+4. 以下の設定で作成：
+   - **Note**: Weekly Menu Planner
+   - **Expiration**: 90 days（お好みで調整）
+   - **Scopes**: `gist` にチェック
+5. "Generate token" をクリックしてトークンをコピー
+
+#### GitHub リポジトリの Secrets 設定
+
+1. このリポジトリの **Settings** タブをクリック
+2. 左メニューの **Secrets and variables** → **Actions** をクリック
+3. **New repository secret** をクリックして以下を順次追加：
 
 ```
-OPENAI_API_KEY         # OpenAI API キー
-NOTION_TOKEN          # Notion インテグレーショントークン
-NOTION_DATABASE_ID    # Notion データベース ID
-GITHUB_TOKEN          # GitHub パーソナルアクセストークン
-INTAKE_GIST_ID        # intake.json を保存する GitHub Gist ID
+Name: OPENAI_API_KEY
+Secret: [取得したOpenAI APIキー]
+
+Name: OPENAI_MODEL
+Secret: gpt-4 (または gpt-4-turbo, gpt-3.5-turbo)
+
+Name: NOTION_TOKEN
+Secret: [取得したNotion Integration Token]
+
+Name: NOTION_DATABASE_ID
+Secret: [後で作成するデータベースID]
+
+Name: GITHUB_TOKEN
+Secret: [作成したPersonal Access Token]
+
+Name: INTAKE_GIST_ID
+Secret: [後で作成するGist ID]
 ```
 
 ### 2. Notion データベース設定
 
-Notion で以下のプロパティを持つデータベースを作成してください：
+#### データベースの作成
 
-| プロパティ名 | タイプ | 説明 |
-|------------|------|------|
-| Title | タイトル | ページタイトル |
-| Week Start | 日付 | 週の開始日（月曜日） |
-| Generated At | 日付 | 生成日時 |
-| Status | セレクト | Current/Archived |
-| Intake Used | チェックボックス | intake.json が使用されたか |
+1. Notion で新しいページを作成
+2. `/table` と入力してデータベースを作成
+3. データベース名を「週間献立」などに変更
+4. 以下のプロパティを追加：
 
-### 3. GitHub Gist 作成
+| プロパティ名 | タイプ | 説明 | 設定方法 |
+|------------|------|------|---------|
+| Title | タイトル | ページタイトル | デフォルトで存在 |
+| Week Start | 日付 | 週の開始日（月曜日） | 右上の "+" → "Date" |
+| Generated At | 日付 | 生成日時 | 右上の "+" → "Date" |
+| Status | セレクト | Current/Archived | 右上の "+" → "Select" |
+| Intake Used | チェックボックス | intake.json が使用されたか | 右上の "+" → "Checkbox" |
 
-1. GitHub で新しい Gist を作成（プライベート推奨）
-2. ファイル名を `intake_example.json` として以下の内容で作成：
+#### Status セレクトオプションの設定
+
+1. Status プロパティをクリック
+2. "Current" オプションを追加（色：緑）
+3. "Archived" オプションを追加（色：グレー）
+
+#### データベース ID の取得
+
+1. データベースページのURLをコピー
+2. URLは以下の形式です：
+   ```
+   https://www.notion.so/[ワークスペース]/[データベース名]-[データベースID]?v=[ビューID]
+   ```
+3. データベース ID は URL の `[データベースID]` 部分（32文字のハイフンあり文字列）
+4. 取得した ID を GitHub Secrets の `NOTION_DATABASE_ID` に設定
+
+### 3. GitHub Gist の作成
+
+#### 新しい Gist の作成
+
+1. [GitHub Gist](https://gist.github.com/) にアクセス
+2. 以下の設定で Gist を作成：
+   - **Filename**: `intake_example.json`
+   - **Content**: 以下のJSON内容をコピー＆ペースト
 
 ```json
 {
@@ -62,7 +134,36 @@ Notion で以下のプロパティを持つデータベースを作成してく�
 }
 ```
 
-3. Gist の ID（URL の最後の部分）を `INTAKE_GIST_ID` に設定
+3. **Create secret gist** をクリック（プライベート推奨）
+
+#### Gist ID の取得
+
+1. 作成した Gist のページの URL を確認
+2. URL 形式：`https://gist.github.com/[ユーザー名]/[GistID]`
+3. `[GistID]` の部分（32文字の英数字）をコピー
+4. GitHub Secrets の `INTAKE_GIST_ID` に設定
+
+#### セットアップ確認
+
+すべての環境変数が設定できたら、GitHub Actions の手動実行でテストしてください：
+
+1. リポジトリの **Actions** タブをクリック
+2. **Weekly Menu Generation** ワークフローを選択
+3. **Run workflow** をクリックして手動実行
+4. 実行ログでエラーがないか確認
+
+### 4. GitHub Actions ワークフローの設定
+
+GitHub リポジトリの Secrets に以下を設定してください：
+
+```
+OPENAI_API_KEY         # OpenAI API キー
+OPENAI_MODEL          # 使用するOpenAIモデル（デフォルト: gpt-4）
+NOTION_TOKEN          # Notion インテグレーショントークン
+NOTION_DATABASE_ID    # Notion データベース ID
+GITHUB_TOKEN          # GitHub パーソナルアクセストークン
+INTAKE_GIST_ID        # intake.json を保存する GitHub Gist ID
+```
 
 ## 📱 Dify Slack ボット設定
 
@@ -210,6 +311,121 @@ Content-Type: application/json
 #### API レート制限に達した場合
 - OpenAI API: 使用量を確認し、プランをアップグレードするか時間をあけて再実行
 - Notion API: リクエスト頻度を下げるか、時間をあけて再実行
+
+## ⚙️ 設定のカスタマイズ
+
+### OpenAI モデルの変更
+
+使用する OpenAI モデルを変更するには、GitHub Actions の環境変数 `OPENAI_MODEL` を設定してください：
+
+```
+OPENAI_MODEL=gpt-4-turbo    # より高性能なモデル
+OPENAI_MODEL=gpt-3.5-turbo  # より経済的なモデル
+```
+
+設定しない場合は、デフォルトで `gpt-4` が使用されます。
+
+### rules.yaml のカスタマイズ
+
+`config/rules.yaml` ファイルを編集することで、デフォルトの献立生成設定をカスタマイズできます：
+
+#### 基本設定
+
+```yaml
+default_settings:
+  days_needed: 5              # 平日のみの場合は5に変更
+  away_days: [5, 6]          # 土日を外食日に設定
+  avoid_ingredients: ["海老", "蟹"]  # アレルギー食材を設定
+  max_cooking_time: 30        # 忙しい平日は30分に短縮
+  priority_recipe_sites:
+    - "cookpad.com"           # よく使うレシピサイトを優先
+    - "kurashiru.com"
+    - "delishkitchen.tv"      # お好みのサイトを追加
+```
+
+#### 料理ジャンルの調整
+
+```yaml
+recipe_preferences:
+  cuisine_types:
+    - "和食"                  # 和食中心にしたい場合
+    - "洋食"
+  difficulty_level: "easy"    # 簡単な料理のみ
+  variety_preference: "medium" # バラエティを控えめに
+```
+
+#### 栄養バランスの重視度
+
+```yaml
+nutrition:
+  consider_balance: true
+  protein_sources:
+    - "魚"                   # 魚中心の食事にしたい場合
+    - "豆腐・大豆製品"
+  vegetable_emphasis: true    # 野菜を多めに
+```
+
+#### 特殊ルール
+
+```yaml
+special_rules:
+  avoid_consecutive_similar: true   # 連日同じ系統を避ける
+  weekend_special: true            # 週末は少し豪華に
+  prep_time_consideration: true    # 平日は準備時間を考慮
+```
+
+### カスタマイズ例
+
+#### ヘルシー志向の設定
+
+```yaml
+default_settings:
+  days_needed: 7
+  max_cooking_time: 45
+  dietary_preferences: ["低カロリー", "野菜多め"]
+
+nutrition:
+  protein_sources:
+    - "魚"
+    - "鶏胸肉"
+    - "豆腐・大豆製品"
+  vegetable_emphasis: true
+```
+
+#### 時短重視の設定
+
+```yaml
+default_settings:
+  max_cooking_time: 20
+  priority_recipe_sites:
+    - "kurashiru.com"        # 時短レシピが豊富
+    - "delishkitchen.tv"
+
+recipe_preferences:
+  difficulty_level: "easy"
+  
+special_rules:
+  prep_time_consideration: true
+```
+
+#### ファミリー向けの設定
+
+```yaml
+default_settings:
+  avoid_ingredients: ["辛いもの", "臭いの強いもの"]
+  
+recipe_preferences:
+  cuisine_types:
+    - "和食"
+    - "洋食"
+    - "子供向け"
+  variety_preference: "high"
+
+special_rules:
+  weekend_special: true        # 週末は家族で楽しめる料理
+```
+
+**注意**: `rules.yaml` を変更した場合、次回の自動実行時から新しい設定が適用されます。すぐに反映したい場合は、GitHub Actions を手動実行してください。
 
 ## 📊 設定ファイル詳細
 

@@ -6,6 +6,8 @@ import os
 import sys
 import json
 import yaml
+import time
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional
@@ -13,12 +15,34 @@ from typing import Dict, List, Optional
 from openai import OpenAI
 from schemas.intake_schema import IntakeData
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 
 class MenuGenerator:
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.openai_model = os.getenv('OPENAI_MODEL', 'gpt-4')  # Default to gpt-4 if not specified
         self.config = self.load_config()
         self.intake_data = self.load_intake_data()
+        
+    def _retry_with_backoff(self, func, max_retries=3, base_delay=1):
+        """Execute function with exponential backoff retry"""
+        for attempt in range(max_retries):
+            try:
+                return func()
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    self.logger.error(f"Final attempt failed: {e}")
+                    raise
+                
+                delay = base_delay * (2 ** attempt)
+                self.logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+                time.sleep(delay)
         
     def load_config(self) -> Dict:
         """Load default rules from yaml file"""
@@ -135,25 +159,30 @@ class MenuGenerator:
         return days[day_index]
     
     def generate_menu(self) -> str:
-        """Generate weekly menu using OpenAI"""
+        """Generate weekly menu using OpenAI with retry logic"""
         settings = self.get_menu_settings()
         prompt = self.create_menu_prompt(settings)
         
-        try:
+        def _make_openai_request():
+            self.logger.info(f"Generating menu using model: {self.openai_model}")
             response = self.openai_client.chat.completions.create(
-                model="gpt-4",
+                model=self.openai_model,
                 messages=[
                     {"role": "system", "content": "あなたは経験豊富な日本の家庭料理の献立プランナーです。バランスの取れた美味しい献立を作成することが得意です。"},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1500,
-                temperature=0.7
+                temperature=0.7,
+                timeout=30  # 30 second timeout
             )
-            
             return response.choices[0].message.content
-            
+        
+        try:
+            return self._retry_with_backoff(_make_openai_request, max_retries=3, base_delay=2)
         except Exception as e:
-            print(f"Error generating menu with OpenAI: {e}")
+            self.logger.error(f"Failed to generate menu after all retries: {e}")
+            self.logger.error(f"Model used: {self.openai_model}")
+            self.logger.error(f"Prompt length: {len(prompt)} characters")
             raise
     
     def save_menu_data(self, menu_content: str):

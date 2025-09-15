@@ -7,8 +7,18 @@ import os
 import sys
 import json
 import requests
+import time
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_week_start():
@@ -20,10 +30,25 @@ def get_current_week_start():
     return monday.date()
 
 
+def retry_with_backoff(func, max_retries=3, base_delay=1):
+    """Execute function with exponential backoff retry"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                logger.error(f"Final attempt failed: {e}")
+                raise
+            
+            delay = base_delay * (2 ** attempt)
+            logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+            time.sleep(delay)
+
+
 def fetch_from_gist(gist_id, github_token):
-    """Fetch intake.json from GitHub Gist"""
+    """Fetch intake.json from GitHub Gist with retry logic"""
     if not gist_id or not github_token:
-        print("Missing GIST_ID or GITHUB_TOKEN environment variables")
+        logger.error("Missing GIST_ID or GITHUB_TOKEN environment variables")
         return None
     
     headers = {
@@ -33,11 +58,14 @@ def fetch_from_gist(gist_id, github_token):
     
     url = f'https://api.github.com/gists/{gist_id}'
     
-    try:
-        response = requests.get(url, headers=headers)
+    def _make_request():
+        logger.info(f"Fetching from GitHub Gist: {gist_id}")
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
-        
-        gist_data = response.json()
+        return response.json()
+    
+    try:
+        gist_data = retry_with_backoff(_make_request, max_retries=3, base_delay=2)
         
         # Look for intake files for current week
         week_start = get_current_week_start()
@@ -46,6 +74,7 @@ def fetch_from_gist(gist_id, github_token):
         # Check for exact match first
         if target_filename in gist_data['files']:
             content = gist_data['files'][target_filename]['content']
+            logger.info(f"Found target intake file: {target_filename}")
             return json.loads(content)
         
         # Fallback: look for any recent intake file
@@ -56,17 +85,20 @@ def fetch_from_gist(gist_id, github_token):
             # Get the most recent file
             latest_file = max(intake_files.items(), key=lambda x: x[0])
             content = latest_file[1]['content']
-            print(f"Using fallback intake file: {latest_file[0]}")
+            logger.info(f"Using fallback intake file: {latest_file[0]}")
             return json.loads(content)
         
-        print("No intake files found in gist")
+        logger.warning("No intake files found in gist")
         return None
         
     except requests.RequestException as e:
-        print(f"Error fetching from gist: {e}")
+        logger.error(f"Network error fetching from gist: {e}")
         return None
     except json.JSONDecodeError as e:
-        print(f"Error parsing JSON from gist: {e}")
+        logger.error(f"JSON parsing error from gist: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error fetching from gist: {e}")
         return None
 
 
@@ -86,17 +118,17 @@ def main():
     gist_id = os.getenv('GIST_ID')
     github_token = os.getenv('GITHUB_TOKEN')
     
-    print("Attempting to fetch intake.json...")
+    logger.info("Attempting to fetch intake.json...")
     
     # Try to fetch from GitHub Gist
     intake_data = fetch_from_gist(gist_id, github_token)
     
     if intake_data:
-        print("Successfully fetched intake data")
+        logger.info("Successfully fetched intake data")
         save_intake_locally(intake_data)
         sys.exit(0)
     else:
-        print("Could not fetch intake data, will use rules.yaml fallback")
+        logger.warning("Could not fetch intake data, will use rules.yaml fallback")
         sys.exit(1)
 
 

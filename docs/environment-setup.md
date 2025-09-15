@@ -14,6 +14,11 @@ OPENAI_API_KEY
 Description: OpenAI API key for menu generation
 Example: sk-...
 Where to get: https://platform.openai.com/api-keys
+
+OPENAI_MODEL (Optional)
+Description: OpenAI model to use for generation
+Example: gpt-4, gpt-4-turbo, gpt-3.5-turbo
+Default: gpt-4
 ```
 
 #### Notion Configuration
@@ -75,6 +80,7 @@ Create a `.env` file in the project root (not committed to git):
 ```bash
 # .env file for local development
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4
 NOTION_TOKEN=your_notion_token_here
 NOTION_DATABASE_ID=your_database_id_here
 GITHUB_TOKEN=your_github_token_here
