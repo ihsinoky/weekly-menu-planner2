@@ -1,0 +1,59 @@
+name: Weekly Menu Generation
+
+on:
+  schedule:
+    # Run every Sunday at 18:00 JST (09:00 UTC)
+    - cron: '0 9 * * 0'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run even if intake.json is not available'
+        required: false
+        default: 'false'
+
+jobs:
+  generate-menu:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Try to fetch intake.json from GitHub Gist
+      id: fetch_intake
+      run: |
+        python scripts/fetch_intake.py
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GIST_ID: ${{ secrets.INTAKE_GIST_ID }}
+      continue-on-error: true
+      
+    - name: Generate weekly menu
+      run: |
+        python scripts/generate_menu.py
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        
+    - name: Update Notion with generated menu
+      run: |
+        python scripts/notion_update.py
+      env:
+        NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        
+    - name: Archive previous week's menu
+      run: |
+        python scripts/archive_menu.py
+      env:
+        NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
