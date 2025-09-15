@@ -6,13 +6,13 @@ import pytest
 import json
 import yaml
 import os
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from datetime import date
 
 # Mock OpenAI to avoid API calls during testing
 sys_path = Path(__file__).parent.parent
-import sys
 sys.path.insert(0, str(sys_path))
 
 from scripts.generate_menu import MenuGenerator
